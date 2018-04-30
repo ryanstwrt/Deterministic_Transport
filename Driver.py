@@ -1,10 +1,41 @@
 import pandas as pd
 import numpy as np
 
+
+def step_characteristic(angular_flux_pos_lhs, scalar_flux_new, current_new, material_data, cell_width, mu_n):
+    cell_average_angular_flux = np.zeros(128)
+    angular_flux_pos_rhs = np.zeros(10)
+    # sweep over the angles, followed by the cells to solve for the angular flux
+    for angle in reversed(range(len(mu_n[0]))):
+        for cell_num, cell in enumerate(material_cell):
+            if angle > 4:
+                angular_flux_pos_rhs[angle] = angular_flux_pos_lhs[angle] * np.exp(-material_data.ix['total_fast', cell] \
+                    * cell_width/mu_n[(0, angle)]) \
+                    + Q[cell_num] / material_data.ix['total_fast', cell] \
+                    * (1 - np.exp(-material_data.ix['total_fast', cell]*cell_width/mu_n[(0, angle)]))
+                cell_average_angular_flux[cell_num] = (cell_width * Q[cell_num] -
+                    mu_n[(0, angle)] * (angular_flux_pos_lhs[angle] - angular_flux_pos_rhs[angle])) \
+                    / (material_data.ix['total_fast', cell] * cell_width)
+            # for mu < 0, we remove the - sign, as the change in delta x would create an additional negative to cancel
+            else:
+                angular_flux_pos_rhs[angle] = angular_flux_pos_lhs[angle] * np.exp(material_data.ix['total_fast', cell] \
+                    * cell_width / mu_n[(0, angle)]) \
+                    + Q[cell_num] / material_data.ix['total_fast', cell] \
+                    * (1 - np.exp(material_data.ix['total_fast', cell] * cell_width / mu_n[(0, angle)]))
+                cell_average_angular_flux[cell_num] = (cell_width * Q[cell_num] -
+                    mu_n[(0, angle)] * (angular_flux_pos_rhs[angle] - angular_flux_pos_lhs[angle])) \
+                    / (material_data.ix['total_fast', cell] * cell_width)
+
+            print(angular_flux_pos_rhs[angle], angular_flux_pos_lhs[angle], cell_average_angular_flux[cell_num])
+
+    return cell_average_angular_flux
+
+
 # Create the cell array which designates the material present in each cell
 mox_cell = ['water', 'water', 'MOX', 'MOX', 'MOX', 'MOX', 'water', 'water']
 u_cell = ['water', 'water', 'U', 'U', 'U', 'U', 'water', 'water']
 material_cell = []
+cell_width = 0.15625
 for i in range(16):
     if i < 8:
         material_cell = material_cell + mox_cell
@@ -26,23 +57,23 @@ material_data = pd.DataFrame(materials_a, columns=['total_fast', 'inscatter_fast
                              index=['MOX', 'U', 'water'])
 material_data = material_data.T
 
-# Create a two dictionaries for ease of access to the material data structure
-material_type = {0: 'MOX', 1: 'U', 2: 'Water'}
-interaction_type = {0:'total_fast', 1:'inscatter_fast', 2:'downscatter_fast', 3:'nusigmaf_fast', 4:'chi_fast',
-                    5:'total_thermal', 6:'inscatter_thermal', 7:'downscatter_thermal', 8:'nusigmaf_thermal',
-                    9:'chi_thermal'}
-mat = 0
-inter = 0
-test = material_data.at[interaction_type[inter], material_type[mat]]
-#print(test)
-
 # Initialize k, the fission product, angular flux at 0, in the positive direction, scalar flux,
 # convergence criteria, and the number of iterations for convergence
 
 k_old = 1
 fission_source_old = np.ones(128)
-scalar_flux = np.zeros(128)
-angular_flux_pos_lhs = np.zeros((5, 2))
+scalar_flux_old = np.zeros((128, 2))
+scalar_flux_new = np.zeros((128, 2))
+current_old = np.zeros((128, 2))
+current_new = np.zeros((128, 2))
+angular_flux_pos_lhs = np.zeros(10)
+mu_n = np.array([[-0.973906528517, -0.865063366689, -0.679409568299, -0.433395394129, -0.148874338982,
+                0.148874338982, 0.433395394129, 0.679409568299, 0.865063366689, 0.973906528517],
+                [0.0666713444544, 0.149451349057, 0.219086362450, 0.269266719318, 0.295524224712,
+                0.295524224712, 0.269266719318, 0.219086362450, 0.149451349057, 0.0666713444544]])
+
+Q = np.zeros(128)
+source = np.zeros(128)
 
 k_conv = 0.00001
 k_conv_test = 0.0001
@@ -57,8 +88,6 @@ num_power_iter = 0
 num_source_iter_fast = 0
 num_source_iter_thermal = 0
 
-print(material_data.ix['chi_fast', 'water'])
-
 # Outermost loop which performs a power iteration over the problem
 # This is also where we will solve for a new fission soruce/k value and
 # where we check for convergence.
@@ -68,24 +97,39 @@ while k_conv < k_conv_test or fission_source_conv < fission_source_conv_test:
     for energy_group in [0, 1]:
         if energy_group == 0:
             for cell_num, cell in enumerate(material_cell):
-                source = material_data.ix['chi_fast', cell] * fission_source_old[cell_num] + \
-                    material_data.ix['downscatter_fast', cell] * scalar_flux[cell_num] + \
-                    material_data.ix['inscatter_fast', cell] * scalar_flux[cell_num]
-        if energy_group == 0:
+                Q[cell_num] = material_data.ix['chi_fast', cell] * fission_source_old[cell_num] + \
+                    material_data.ix['downscatter_fast', cell] * scalar_flux_old[cell_num, energy_group] + \
+                    material_data.ix['inscatter_fast', cell] * scalar_flux_old[cell_num, energy_group]
+        elif energy_group == 1:
             for cell_num, cell in enumerate(material_cell):
-                source = material_data.ix['chi_fast', cell] * fission_source_old[cell_num] + \
-                    material_data.ix['downscatter_fast', cell] * scalar_flux[cell_num] + \
-                    material_data.ix['inscatter_fast', cell] * scalar_flux[cell_num]
-    print(source)
+                Q[cell_num] = material_data.ix['chi_fast', cell] * fission_source_old[cell_num] + \
+                    material_data.ix['downscatter_fast', cell] * scalar_flux_old[cell_num, energy_group] + \
+                    material_data.ix['inscatter_fast', cell] * scalar_flux_old[cell_num, energy_group]
+        else:
+            print("Error: Energy group not defined!")
+            quit()
+
+        # Inner loop to determine source convergence
+        # start by determining the source term based on the energy and the Q term from above.
+        while source_convergence < source_convergence_test:
+            if energy_group == 0:
+                for cell_num, cell in enumerate(material_cell):
+                    source[cell_num] = 0.5 * (material_data.ix['inscatter_fast', cell] + Q[cell_num] / k_old)
+            elif energy_group == 1:
+                for cell_num, cell in enumerate(material_cell):
+                    source[cell_num] = 0.5 * (material_data.ix['inscatter_thermal', cell] + Q[cell_num] / k_old)
+            else:
+                print("Error: Energy group not defined!")
+                quit()
+
+            # loop over the angles to determine the angular flux
+            cell_average_angular_flux = step_characteristic(angular_flux_pos_lhs, scalar_flux_new, current_new, material_data, cell_width, mu_n)
+
+
+            break
+        break
     break
 
-#    source =
     num_power_iter += 1
     if num_power_iter > 1000:
         break
-
-print(num_power_iter)
-
-
-
-
