@@ -5,31 +5,53 @@ import numpy as np
 def step_characteristic(angular_flux_pos_lhs, scalar_flux_new, current_new, material_data, cell_width, mu_n):
     cell_average_angular_flux = np.zeros(128)
     angular_flux_pos_rhs = np.zeros(10)
-    # sweep over the angles, followed by the cells to solve for the angular flux
+    # sweep over the angles (starting with the positive angles, followed by the cells to solve for the angular flux
     for angle in reversed(range(len(mu_n[0]))):
-        for cell_num, cell in enumerate(material_cell):
-            if angle > 4:
+        print(angular_flux_pos_rhs)
+        print(angular_flux_pos_lhs)
+        if angle > 4:
+            for cell_num, cell in enumerate(material_cell):
                 angular_flux_pos_rhs[angle] = angular_flux_pos_lhs[angle] * np.exp(-material_data.ix['total_fast', cell] \
                     * cell_width/mu_n[(0, angle)]) \
                     + Q[cell_num] / material_data.ix['total_fast', cell] \
                     * (1 - np.exp(-material_data.ix['total_fast', cell]*cell_width/mu_n[(0, angle)]))
-                cell_average_angular_flux[cell_num] = (cell_width * Q[cell_num] -
+
+                cell_average_angular_flux[cell_num] += (cell_width * Q[cell_num] -
                     mu_n[(0, angle)] * (angular_flux_pos_lhs[angle] - angular_flux_pos_rhs[angle])) \
                     / (material_data.ix['total_fast', cell] * cell_width)
+
+                scalar_flux_new[(cell_num, 0)] += cell_average_angular_flux[cell_num] * mu_n[(1, angle)]
+
+                current_new[(cell_num, 0)] += cell_average_angular_flux[cell_num] * mu_n[(1, angle)] * mu_n[(0, angle)]
+
+                angular_flux_pos_lhs[angle] = angular_flux_pos_rhs[angle]
             # for mu < 0, we remove the - sign, as the change in delta x would create an additional negative to cancel
-            else:
-                angular_flux_pos_rhs[angle] = angular_flux_pos_lhs[angle] * np.exp(material_data.ix['total_fast', cell] \
+        else:
+            for cell_num, cell in enumerate(reversed(material_cell)):
+                rev_cell_num = 127 - cell_num
+                angular_flux_pos_lhs[angle] = angular_flux_pos_rhs[angle] * np.exp(material_data.ix['total_fast', cell] \
                     * cell_width / mu_n[(0, angle)]) \
-                    + Q[cell_num] / material_data.ix['total_fast', cell] \
+                    + Q[rev_cell_num] / material_data.ix['total_fast', cell] \
                     * (1 - np.exp(material_data.ix['total_fast', cell] * cell_width / mu_n[(0, angle)]))
-                cell_average_angular_flux[cell_num] = (cell_width * Q[cell_num] -
+
+                cell_average_angular_flux[rev_cell_num] += (cell_width * Q[rev_cell_num] -
                     mu_n[(0, angle)] * (angular_flux_pos_rhs[angle] - angular_flux_pos_lhs[angle])) \
                     / (material_data.ix['total_fast', cell] * cell_width)
 
-            print(angular_flux_pos_rhs[angle], angular_flux_pos_lhs[angle], cell_average_angular_flux[cell_num])
+                scalar_flux_new[(rev_cell_num, 0)] += cell_average_angular_flux[rev_cell_num] * mu_n[(1, angle)]
+
+                current_new[(rev_cell_num, 0)] += cell_average_angular_flux[rev_cell_num] * mu_n[(1, angle)] * mu_n[(0, angle)]
+
+                angular_flux_pos_rhs[angle] = angular_flux_pos_lhs[angle]
+
+            #print(angular_flux_pos_rhs[angle], angular_flux_pos_lhs[angle], cell_average_angular_flux[cell_num])
 
     return cell_average_angular_flux
 
+#
+# Beginning of the Deterministic solver program.
+#
+#
 
 # Create the cell array which designates the material present in each cell
 mox_cell = ['water', 'water', 'MOX', 'MOX', 'MOX', 'MOX', 'water', 'water']
@@ -97,14 +119,10 @@ while k_conv < k_conv_test or fission_source_conv < fission_source_conv_test:
     for energy_group in [0, 1]:
         if energy_group == 0:
             for cell_num, cell in enumerate(material_cell):
-                Q[cell_num] = material_data.ix['chi_fast', cell] * fission_source_old[cell_num] + \
-                    material_data.ix['downscatter_fast', cell] * scalar_flux_old[cell_num, energy_group] + \
-                    material_data.ix['inscatter_fast', cell] * scalar_flux_old[cell_num, energy_group]
+                source[cell_num] = fission_source_old[cell_num] / k_old
         elif energy_group == 1:
             for cell_num, cell in enumerate(material_cell):
-                Q[cell_num] = material_data.ix['chi_fast', cell] * fission_source_old[cell_num] + \
-                    material_data.ix['downscatter_fast', cell] * scalar_flux_old[cell_num, energy_group] + \
-                    material_data.ix['inscatter_fast', cell] * scalar_flux_old[cell_num, energy_group]
+                source[cell_num] = material_data.ix['downscatter_fast', cell] * scalar_flux_new[cell_num]
         else:
             print("Error: Energy group not defined!")
             quit()
@@ -114,10 +132,10 @@ while k_conv < k_conv_test or fission_source_conv < fission_source_conv_test:
         while source_convergence < source_convergence_test:
             if energy_group == 0:
                 for cell_num, cell in enumerate(material_cell):
-                    source[cell_num] = 0.5 * (material_data.ix['inscatter_fast', cell] + Q[cell_num] / k_old)
+                    Q[cell_num] = 0.5 * (material_data.ix['inscatter_fast', cell] * scalar_flux_old[cell_num, 0] + source[cell_num])
             elif energy_group == 1:
                 for cell_num, cell in enumerate(material_cell):
-                    source[cell_num] = 0.5 * (material_data.ix['inscatter_thermal', cell] + Q[cell_num] / k_old)
+                    Q[cell_num] = 0.5 * (material_data.ix['inscatter_thermal', cell] * scalar_flux_new[cell_num, 0] + source[cell_num])
             else:
                 print("Error: Energy group not defined!")
                 quit()
