@@ -1,5 +1,6 @@
 import pandas as pd
 import numpy as np
+import matplotlib.pyplot as mpl
 
 
 def step_characteristic_fast(angular_flux_pos_lhs, scalar_flux_new, current_new, material_data, cell_width, mu_n):
@@ -143,7 +144,9 @@ material_data = material_data.T
 # convergence criteria, and the number of iterations for convergence
 
 k_old = 1
+k_new = np.zeros(100)
 fission_source_old = np.ones(128)
+fission_source_new = np.ones(128)
 scalar_flux_old = np.zeros((128, 2))
 current_old = np.zeros((128, 2))
 angular_flux_pos_lhs = np.zeros((10, 2))
@@ -156,12 +159,11 @@ Q = np.zeros(128)
 source = np.zeros(128)
 
 k_conv = 0.00001
-k_conv_test = 0.0001
-
 fission_source_conv = 0.00001
-fission_source_conv_test = 0.0001
-
 source_convergence = 0.000001
+fs_convergence = 1
+k_convergence = 1
+
 fast_source_convergence = 0
 thermal_source_convergence = 0
 num_power_iter = 0
@@ -170,7 +172,7 @@ num_power_iter = 0
 # Outermost loop which performs a power iteration over the problem
 # This is also where we will solve for a new fission soruce/k value and
 # where we check for convergence.
-while k_conv < k_conv_test or fission_source_conv < fission_source_conv_test:
+while k_conv < k_convergence or fission_source_conv < fs_convergence:
     num_source_iter_fast = 0
     num_source_iter_thermal = 0
     # loop over the energy groups (we only have two energy groups:
@@ -199,10 +201,12 @@ while k_conv < k_conv_test or fission_source_conv < fission_source_conv_test:
 
                 step_characteristic_fast(angular_flux_pos_lhs, scalar_flux_new, current_new,
                                                                     material_data, cell_width, mu_n)
-                max = np.amax(scalar_flux_new[0])
-                max_old = np.amax(scalar_flux_old[0])
+                max = np.amax(scalar_flux_new[:, 0])
+                max_old = np.amax(scalar_flux_old[:, 0])
                 fast_source_convergence = abs((max - max_old) / max)
                 num_source_iter_fast += 1
+                scalar_flux_old[:, 0] = scalar_flux_new[:, 0]
+
 
             elif energy_group == 1:
                 for cell_num, cell in enumerate(material_cell):
@@ -210,23 +214,40 @@ while k_conv < k_conv_test or fission_source_conv < fission_source_conv_test:
 
                 step_characteristic_thermal(angular_flux_pos_lhs, scalar_flux_new, current_new,
                                                                    material_data, cell_width, mu_n)
-                max = np.amax(scalar_flux_new[1])
-                max_old = np.amax(scalar_flux_old[1])
+                max = np.amax(scalar_flux_new[:, 1])
+                max_old = np.amax(scalar_flux_old[:, 1])
                 thermal_source_convergence = abs((max - max_old) / max)
                 num_source_iter_thermal += 1
+                scalar_flux_old[:, 1] = scalar_flux_new[:, 1]
 
-            scalar_flux_old = scalar_flux_new
             current_old = current_new
-
             if fast_source_convergence < source_convergence and thermal_source_convergence < source_convergence:
                 break
 
-    print(scalar_flux_new)
-    print(num_source_iter_fast, num_source_iter_thermal)
-    num_power_iter
-    # loop over the angles to determine the angular flux
-    break
+    # Create the new fission source
+    for cell_num, cell in enumerate(material_cell):
+        fission_source_new[cell_num] = material_data.ix['nusigmaf_fast', cell] * scalar_flux_old[(cell_num, 0)] + \
+                                       material_data.ix['nusigmaf_thermal', cell] * scalar_flux_old[(cell_num, 1)]
+    # Determine the new k value
+    k_new[num_power_iter+1] = k_old * sum(fission_source_new) / sum(fission_source_old)
 
+    # Calcualte convergence criteria
+    fs_convergence = abs(np.amax(fission_source_new) - np.amax(fission_source_old))
+    print("New k iteration number: %d" %num_power_iter)
+    print("k_eff: %f" % k_new[num_power_iter+1])
+    k_convergence = abs((k_new[num_power_iter+1] - k_old)/k_new[num_power_iter+1])
+
+    if fs_convergence < fission_source_conv and k_convergence < k_conv:
+        print(k_new)
+        break
+
+    fission_source_old[:] = fission_source_new[:]
+    k_old = k_new[num_power_iter+1]
+
+    #mpl.plot(fission_source_new)
+    #mpl.show()
     num_power_iter += 1
+    # loop over the angles to determine the angular flux
+
     if num_power_iter > 1000:
         break
