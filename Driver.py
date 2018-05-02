@@ -8,14 +8,14 @@ def step_characteristic_fast(angular_flux_pos_lhs, scalar_flux_new, current_new,
     angular_flux_pos_rhs = np.zeros((10, 2))
     # sweep over the angles (starting with the positive angles, followed by the cells to solve for the angular flux
     for angle in reversed(range(len(mu_n[0]))):
-        if angle == 9:
+        if angle > 4:
             for cell_num, cell in enumerate(material_cell):
                 tau = material_data.ix['total_fast', cell] * cell_width /abs(mu_n[(0, angle)])
 
                 angular_flux_pos_rhs[(angle, 0)] = angular_flux_pos_lhs[(angle, 0)] * np.exp(-tau) \
                     + Q[cell_num] / material_data.ix['total_fast', cell] * (1 - np.exp(-tau))
 
-                cell_average_angular_flux[cell_num] += (cell_width * Q[cell_num] -
+                cell_average_angular_flux[cell_num] = (cell_width * Q[cell_num] -
                     mu_n[(0, angle)] * (angular_flux_pos_rhs[(angle, 0)] - angular_flux_pos_lhs[(angle, 0)])) \
                     / (material_data.ix['total_fast', cell] * cell_width)
 
@@ -26,7 +26,7 @@ def step_characteristic_fast(angular_flux_pos_lhs, scalar_flux_new, current_new,
                 angular_flux_pos_lhs[(angle, 0)] = angular_flux_pos_rhs[(angle, 0)]
 
             # for mu < 0, we remove the - sign, as the change in delta x would create an additional negative to cancel
-        elif angle ==0:
+        else:
             for cell_num, cell in enumerate(reversed(material_cell)):
                 rev_cell_num = 127 - cell_num
 
@@ -36,26 +36,25 @@ def step_characteristic_fast(angular_flux_pos_lhs, scalar_flux_new, current_new,
                 if rev_cell_num == 127:
                     angular_flux_pos_lhs[(angle, 0)] = angular_flux_pos_rhs[(9-angle, 0)] * np.exp(-tau) \
                         + Q[rev_cell_num] / material_data.ix['total_fast', cell] * (1 - np.exp(-tau))
-                    cell_average_angular_flux[rev_cell_num] += (cell_width * Q[rev_cell_num] -
-                                                                mu_n[(0, angle)] * (angular_flux_pos_lhs[(angle, 0)] -
-                                                                                    angular_flux_pos_rhs[(9-angle, 0)])) \
-                                                               / (material_data.ix['total_fast', cell] * cell_width)
+
+                    cell_average_angular_flux[rev_cell_num] = (cell_width * Q[rev_cell_num] - mu_n[(0, angle)]
+                                                                * (angular_flux_pos_rhs[(9-angle, 0)]
+                                                                - angular_flux_pos_lhs[(angle, 0)])) \
+                                                                / (material_data.ix['total_fast', cell] * cell_width)
                 else:
                     angular_flux_pos_lhs[(angle, 0)] = angular_flux_pos_rhs[(angle, 0)] * np.exp(-tau) \
                         + Q[rev_cell_num] / material_data.ix['total_fast', cell] * (1 - np.exp(-tau))
-                    cell_average_angular_flux[rev_cell_num] += (cell_width * Q[rev_cell_num] -
-                                                                mu_n[(0, angle)] * (angular_flux_pos_lhs[(angle, 0)] -
-                                                                                    angular_flux_pos_rhs[(angle, 0)])) \
+                    cell_average_angular_flux[rev_cell_num] = (cell_width * Q[rev_cell_num] - mu_n[(0, angle)]
+                                                                * (angular_flux_pos_rhs[(angle, 0)]
+                                                                - angular_flux_pos_lhs[(angle, 0)])) \
                                                                / (material_data.ix['total_fast', cell] * cell_width)
-
 
                 scalar_flux_new[(rev_cell_num, 0)] += cell_average_angular_flux[rev_cell_num] * mu_n[(1, angle)]
 
                 current_new[(rev_cell_num, 0)] += cell_average_angular_flux[rev_cell_num] * mu_n[(1, angle)] * mu_n[(0, angle)]
 
                 angular_flux_pos_rhs[(angle, 0)] = angular_flux_pos_lhs[(angle, 0)]
-        else:
-            pass
+
     return
 
 def step_characteristic_thermal(angular_flux_pos_lhs, scalar_flux_new, current_new, material_data, cell_width, mu_n):
@@ -65,14 +64,15 @@ def step_characteristic_thermal(angular_flux_pos_lhs, scalar_flux_new, current_n
     for angle in reversed(range(len(mu_n[0]))):
         if angle > 4:
             for cell_num, cell in enumerate(material_cell):
-                tau = material_data.ix['total_fast', cell] * cell_width / abs(mu_n[(0, angle)])
+                tau = material_data.ix['total_thermal', cell] * cell_width / abs(mu_n[(0, angle)])
 
                 angular_flux_pos_rhs[(angle,  1)] = angular_flux_pos_lhs[(angle, 1)] * np.exp(-tau) \
                     + Q[cell_num] / material_data.ix['total_thermal', cell] * (1 - np.exp(-tau))
 
-                cell_average_angular_flux[cell_num] += (cell_width * Q[cell_num] -
-                    mu_n[(0, angle)] * (angular_flux_pos_rhs[(angle, 1)] - angular_flux_pos_lhs[(angle, 1)])) \
-                    / (material_data.ix['total_thermal', cell] * cell_width)
+                cell_average_angular_flux[cell_num] = (cell_width * Q[cell_num] - mu_n[(0, angle)]
+                                                       * (angular_flux_pos_rhs[(angle, 1)]
+                                                       - angular_flux_pos_lhs[(angle, 1)])) \
+                                                       / (material_data.ix['total_thermal', cell] * cell_width)
 
                 scalar_flux_new[(cell_num, 1)] += cell_average_angular_flux[cell_num] * mu_n[(1, angle)]
 
@@ -82,26 +82,25 @@ def step_characteristic_thermal(angular_flux_pos_lhs, scalar_flux_new, current_n
             # for mu < 0, we remove the - sign, as the change in delta x would create an additional negative to cancel
         else:
             for cell_num, cell in enumerate(reversed(material_cell)):
-                tau = material_data.ix['total_fast', cell] * cell_width / mu_n[(0, angle)]
+                tau = material_data.ix['total_thermal', cell] * cell_width / abs(mu_n[(0, angle)])
                 rev_cell_num = 127 - cell_num
 
                 if rev_cell_num == 127:
-                    angular_flux_pos_lhs[(angle, 0)] = angular_flux_pos_rhs[(9 - angle, 0)] * np.exp(-tau) \
-                                                       + Q[rev_cell_num] / material_data.ix['total_thermal', cell] * (
-                                                                   1 - np.exp(-tau))
-                    cell_average_angular_flux[rev_cell_num] += (cell_width * Q[rev_cell_num] -
-                                                                mu_n[(0, angle)] * (angular_flux_pos_lhs[(angle, 0)] -
-                                                                                    angular_flux_pos_rhs[
-                                                                                        (9 - angle, 0)])) \
-                                                               / (material_data.ix['total_thermal', cell] * cell_width)
+                    angular_flux_pos_lhs[(angle, 1)] = angular_flux_pos_rhs[(9 - angle, 1)] * np.exp(-tau) \
+                                                       + Q[rev_cell_num] / material_data.ix['total_thermal', cell] \
+                                                       * (1 - np.exp(-tau))
+                    cell_average_angular_flux[rev_cell_num] = (cell_width * Q[rev_cell_num] - mu_n[(0, angle)]
+                                                                * (angular_flux_pos_rhs[(9 - angle, 1)]
+                                                                - angular_flux_pos_lhs[(angle, 1)])) \
+                                                                / (material_data.ix['total_thermal', cell] * cell_width)
                 else:
-                    angular_flux_pos_lhs[(angle, 0)] = angular_flux_pos_rhs[(angle, 0)] * np.exp(-tau) \
-                                                       + Q[rev_cell_num] / material_data.ix['total_thermal', cell] * (
-                                                                   1 - np.exp(-tau))
-                    cell_average_angular_flux[rev_cell_num] += (cell_width * Q[rev_cell_num] -
-                                                                mu_n[(0, angle)] * (angular_flux_pos_lhs[(angle, 0)] -
-                                                                                    angular_flux_pos_rhs[(angle, 0)])) \
-                                                               / (material_data.ix['total_thermal', cell] * cell_width)
+                    angular_flux_pos_lhs[(angle, 1)] = angular_flux_pos_rhs[(angle, 1)] * np.exp(-tau) \
+                                                       + Q[rev_cell_num] / material_data.ix['total_thermal', cell] \
+                                                       * (1 - np.exp(-tau))
+                    cell_average_angular_flux[rev_cell_num] = (cell_width * Q[rev_cell_num] - mu_n[(0, angle)]
+                                                                * (angular_flux_pos_rhs[(angle, 1)]
+                                                                - angular_flux_pos_lhs[(angle, 1)])) \
+                                                                / (material_data.ix['total_thermal', cell] * cell_width)
 
                 scalar_flux_new[(rev_cell_num, 1)] += cell_average_angular_flux[rev_cell_num] * mu_n[(1, angle)]
 
@@ -200,7 +199,7 @@ while k_conv < k_convergence or fission_source_conv < fs_convergence:
                     Q[cell_num] = 0.5 * (material_data.ix['inscatter_fast', cell] * scalar_flux_old[cell_num, 0] + source[cell_num])
 
                 step_characteristic_fast(angular_flux_pos_lhs, scalar_flux_new, current_new,
-                                                                    material_data, cell_width, mu_n)
+                                                                   material_data, cell_width, mu_n)
                 max = np.amax(scalar_flux_new[:, 0])
                 max_old = np.amax(scalar_flux_old[:, 0])
                 fast_source_convergence = abs((max - max_old) / max)
@@ -220,7 +219,7 @@ while k_conv < k_convergence or fission_source_conv < fs_convergence:
                 num_source_iter_thermal += 1
                 scalar_flux_old[:, 1] = scalar_flux_new[:, 1]
 
-            current_old = current_new
+            current_old[:] = current_new[:]
             if fast_source_convergence < source_convergence and thermal_source_convergence < source_convergence:
                 break
 
@@ -229,12 +228,14 @@ while k_conv < k_convergence or fission_source_conv < fs_convergence:
         fission_source_new[cell_num] = material_data.ix['nusigmaf_fast', cell] * scalar_flux_old[(cell_num, 0)] + \
                                        material_data.ix['nusigmaf_thermal', cell] * scalar_flux_old[(cell_num, 1)]
     # Determine the new k value
-    k_new[num_power_iter+1] = k_old * sum(fission_source_new) / sum(fission_source_old)
+    k_new[num_power_iter+1] = k_old * sum(fission_source_new) * cell_width / (sum(fission_source_old) * cell_width)
 
     # Calcualte convergence criteria
     fs_convergence = abs(np.amax(fission_source_new) - np.amax(fission_source_old))
     print("New k iteration number: %d" %num_power_iter)
     print("k_eff: %f" % k_new[num_power_iter+1])
+    print("k_eff convergence: %f" % k_convergence)
+
     k_convergence = abs((k_new[num_power_iter+1] - k_old)/k_new[num_power_iter+1])
 
     if fs_convergence < fission_source_conv and k_convergence < k_conv:
@@ -244,10 +245,14 @@ while k_conv < k_convergence or fission_source_conv < fs_convergence:
     fission_source_old[:] = fission_source_new[:]
     k_old = k_new[num_power_iter+1]
 
-    #mpl.plot(fission_source_new)
-    #mpl.show()
+
     num_power_iter += 1
     # loop over the angles to determine the angular flux
 
     if num_power_iter > 1000:
         break
+
+mpl.plot(fission_source_new)
+mpl.show()
+mpl.plot(scalar_flux_old)
+mpl.show()
