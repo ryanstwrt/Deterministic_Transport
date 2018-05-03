@@ -125,11 +125,11 @@ for i in range(16):
         material_cell = material_cell + u_cell
 
 # Create the material specifications for each problem
-materials_a = [[0.2, 0.2, 0.0, 0.0, 1.0, 0.6, 0.0, 0.0, 0.78, 0.0],
-               [0.2, 0.2, 0.0, 0.0, 1.0, 0.2, 0.0, 0.0, 0.26, 0.0],
+materials_a = [[0.2, 0.2, 0.0, 0.0, 1.0, 0.6, 0.0, 0.0, 0.90, 0.0],
+               [0.2, 0.2, 0.0, 0.0, 1.0, 0.2, 0.0, 0.0, 0.30, 0.0],
                [0.2, 0.17, 0.03, 0.0, 0.0, 1.1, 1.1, 0.0, 0.0, 0.0]]
-materials_b = [[0.2, 0.175, 0.025, 0.0, 1.0, 1.2, 0.9, 0.0, 0.39, 0.0],
-               [0.2, 0.175, 0.025, 0.0, 1.0, 1.0, 0.9, 0.0, 0.13, 0.0],
+materials_b = [[0.2, 0.175, 0.025, 0.0, 1.0, 1.2, 0.9, 0.0, 0.45, 0.0],
+               [0.2, 0.175, 0.025, 0.0, 1.0, 1.0, 0.9, 0.0, 0.15, 0.0],
                [0.2, 0.17, 0.03, 0.0, 0.0, 1.1, 1.1, 0.0, 0.0, 0.0]]
 
 # Create a data from for the material cross sections to be used for each material
@@ -143,7 +143,8 @@ material_data = material_data.T
 # convergence criteria, and the number of iterations for convergence
 
 k_old = 1
-k_new = np.zeros(100)
+k_new = np.zeros(50)
+k_new[0] = 1
 fission_source_old = np.ones(128)
 fission_source_new = np.ones(128)
 scalar_flux_old = np.zeros((128, 2))
@@ -205,6 +206,7 @@ while k_conv < k_convergence or fission_source_conv < fs_convergence:
                 fast_source_convergence = abs((max - max_old) / max)
                 num_source_iter_fast += 1
                 scalar_flux_old[:, 0] = scalar_flux_new[:, 0]
+                current_old[:, 0] = current_new[:, 0]
 
 
             elif energy_group == 1:
@@ -218,15 +220,15 @@ while k_conv < k_convergence or fission_source_conv < fs_convergence:
                 thermal_source_convergence = abs((max - max_old) / max)
                 num_source_iter_thermal += 1
                 scalar_flux_old[:, 1] = scalar_flux_new[:, 1]
+                current_old[:, 1] = current_new[:, 1]
 
-            current_old[:] = current_new[:]
             if fast_source_convergence < source_convergence and thermal_source_convergence < source_convergence:
                 break
 
     # Create the new fission source
     for cell_num, cell in enumerate(material_cell):
-        fission_source_new[cell_num] = material_data.ix['nusigmaf_fast', cell] * scalar_flux_old[(cell_num, 0)] + \
-                                       material_data.ix['nusigmaf_thermal', cell] * scalar_flux_old[(cell_num, 1)]
+        fission_source_new[cell_num] = material_data.ix['nusigmaf_fast', cell] * scalar_flux_old[(cell_num, 0)] * cell_width + \
+                                       material_data.ix['nusigmaf_thermal', cell] * scalar_flux_old[(cell_num, 1)] * cell_width
     # Determine the new k value
     k_new[num_power_iter+1] = k_old * sum(fission_source_new) * cell_width / (sum(fission_source_old) * cell_width)
 
@@ -234,7 +236,7 @@ while k_conv < k_convergence or fission_source_conv < fs_convergence:
     fs_convergence = abs(np.amax(fission_source_new) - np.amax(fission_source_old))
     print("New k iteration number: %d" %num_power_iter)
     print("k_eff: %f" % k_new[num_power_iter+1])
-    print("k_eff convergence: %f" % k_convergence)
+    print("k_eff convergence: %f, %f" % (k_convergence, fs_convergence))
 
     k_convergence = abs((k_new[num_power_iter+1] - k_old)/k_new[num_power_iter+1])
 
@@ -255,4 +257,6 @@ while k_conv < k_convergence or fission_source_conv < fs_convergence:
 mpl.plot(fission_source_new)
 mpl.show()
 mpl.plot(scalar_flux_old)
+mpl.show()
+mpl.plot(current_old)
 mpl.show()
