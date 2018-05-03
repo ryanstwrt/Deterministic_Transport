@@ -1,6 +1,7 @@
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as mpl
+import post_process as pp
 
 
 def step_characteristic(angular_flux_pos_lhs, angular_flux_pos_rhs, scalar_flux_new, current_new, material_data,
@@ -75,7 +76,7 @@ materials_b = [[0.2, 0.185, 0.015, 0.0, 1.0, 1.2, 0.9, 0.0, 0.45, 0.0],
                [0.2, 0.17, 0.03, 0.0, 0.0, 1.1, 1.1, 0.0, 0.0, 0.0]]
 
 # Create a data from for the material cross sections to be used for each material
-material_data = pd.DataFrame(materials_a, columns=['total_fast', 'inscatter_fast', 'downscatter_fast',
+material_data = pd.DataFrame(materials_b, columns=['total_fast', 'inscatter_fast', 'downscatter_fast',
                                                    'nusigmaf_fast', 'chi_fast', 'total_thermal', 'inscatter_thermal',
                                                    'downscatter_thermal', 'nusigmaf_thermal', 'chi_thermal'],
                              index=['MOX', 'U', 'water'])
@@ -120,7 +121,7 @@ while k_conv < k_convergence or fission_source_conv < fs_convergence:
             source[:] = fission_source_old[:] / k_old
         elif energy_group == 1:
             for cell_num, cell in enumerate(material_cell):
-                source[cell_num] = material_data.ix['downscatter_fast', cell] * scalar_flux_old[(cell_num, 0)]
+                source[cell_num] = material_data.ix['downscatter_fast', cell] * scalar_flux_new[(cell_num, 0)]
 
         # Inner loop to determine source convergence
         # Start by determining the source term based on the energy and the Q term from above.
@@ -131,16 +132,15 @@ while k_conv < k_convergence or fission_source_conv < fs_convergence:
 
             if energy_group == 0:
                 for cell_num, cell in enumerate(material_cell):
-                    Q[cell_num] = 0.5 * (material_data.ix['inscatter_fast', cell] * scalar_flux_old[cell_num, 0]
+                    Q[cell_num] = 0.5 * (material_data.ix['inscatter_fast', cell] * scalar_flux_old[cell_num, energy_group]
                                          + source[cell_num])
-
                 step_characteristic(angular_flux_pos_lhs, angular_flux_pos_rhs, scalar_flux_new, current_new,
                                          material_data, cell_width, mu_n, energy_group)
                 num_source_iter_fast += 1
 
             elif energy_group == 1:
                 for cell_num, cell in enumerate(material_cell):
-                    Q[cell_num] = 0.5 * (material_data.ix['inscatter_thermal', cell] * scalar_flux_old[cell_num, 0]
+                    Q[cell_num] = 0.5 * (material_data.ix['inscatter_thermal', cell] * scalar_flux_old[cell_num, energy_group]
                                          + source[cell_num])
 
                 step_characteristic(angular_flux_pos_lhs, angular_flux_pos_rhs, scalar_flux_new, current_new,
@@ -152,14 +152,14 @@ while k_conv < k_convergence or fission_source_conv < fs_convergence:
                                         / np.amax(scalar_flux_new[:, energy_group]))
             scalar_flux_old[:, energy_group] = scalar_flux_new[:, energy_group]
             current_old[:, energy_group] = current_new[:, energy_group]
+            #print("Source Convergence: %0.8f" % group_source_convergence)
             if group_source_convergence < source_convergence:
                 break
 
     # Create the new fission source
     for cell_num, cell in enumerate(material_cell):
         fission_source_new[cell_num] = (material_data.ix['nusigmaf_fast', cell] * scalar_flux_old[(cell_num, 0)] \
-                                       + material_data.ix['nusigmaf_thermal', cell] * scalar_flux_old[(cell_num, 1)]) \
-                                        * cell_width
+                                       + material_data.ix['nusigmaf_thermal', cell] * scalar_flux_old[(cell_num, 1)])
     # Determine the new k value
     k_new = k_old * sum(fission_source_new) * cell_width / (sum(fission_source_old) * cell_width)
 
@@ -171,14 +171,30 @@ while k_conv < k_convergence or fission_source_conv < fs_convergence:
     print("New k iteration number: %d" % num_power_iter)
     print("k_eff: %f" % k_new)
     print("k_eff convergence: %f, %f" % (k_convergence, fs_convergence))
+    print("Source convergence: %d, %d" % (num_source_iter_fast, num_source_iter_thermal))
 
     num_power_iter += 1
     if num_power_iter > 1000:
         break
 
-mpl.plot(fission_source_new)
-mpl.show()
-mpl.plot(scalar_flux_old)
-mpl.show()
-mpl.plot(current_old)
-mpl.show()
+fast = pp.pin_cell_average_flux(scalar_flux_old[:, 0])
+thermal = pp.pin_cell_average_flux(scalar_flux_old[:, 1])
+pin_cell_average = np.concatenate(([fast], [thermal]))
+pin_cell_average = pin_cell_average.T
+
+source_excel = pd.DataFrame(scalar_flux_old)
+current_excel = pd.DataFrame(current_old)
+pin_average_excel = pd.DataFrame(pin_cell_average)
+filepath = 'deterministic.xlsx'
+
+source_excel.to_excel(filepath, index=False, sheet_name='source')
+current_excel.to_excel(filepath, index=False, sheet_name='current')
+pin_average_excel.to_excel(filepath, index=False, sheet_name='pin_average')
+
+pp.plot_flux(scalar_flux_old, "Flux", "Cell", "Flux (1/cm^2)", "Fast Flux", "Thermal Flux")
+pp.plot_1d_array(fission_source_new, "Fission Source", "Cell", "Unscaled Probability", "Fission Source")
+pp.plot_flux(current_old, "Current", "Cell #", "Flux (1/cm^2)", "Fast Current", "Thermal Current")
+pp.plot_flux(pin_cell_average, "Pin Averaged Flux", "Pin Cell", "Flux (1/cm^2)", "Fast Flux", "Thermal Flux")
+pp.flux_histogram(pin_cell_average, "Pin Averaged Histogram", "Pin Cell", "Flux (1/cm^2)", "Fast Flux", "Thermal Flux")
+
+
