@@ -177,11 +177,13 @@ while k_conv < k_convergence or fission_source_conv < fs_convergence:
     if num_power_iter > 1000:
         break
 
+# Create the pin cell average
 fast = pp.pin_cell_average_flux(scalar_flux_old[:, 0])
 thermal = pp.pin_cell_average_flux(scalar_flux_old[:, 1])
 pin_cell_average = np.concatenate(([fast], [thermal]))
 pin_cell_average = pin_cell_average.T
 
+# Write out the flux, current and pin average flux to excel
 source_excel = pd.DataFrame(scalar_flux_old)
 current_excel = pd.DataFrame(current_old)
 pin_average_excel = pd.DataFrame(pin_cell_average)
@@ -191,6 +193,7 @@ source_excel.to_excel(filepath, index=False, sheet_name='source')
 current_excel.to_excel(filepath, index=False, sheet_name='current')
 pin_average_excel.to_excel(filepath, index=False, sheet_name='pin_average')
 
+# Print out plots of each
 pp.plot_flux(scalar_flux_old, "Flux", "Cell", "Flux (1/cm^2)", "Fast Flux", "Thermal Flux")
 pp.plot_1d_array(fission_source_new, "Fission Source", "Cell", "Unscaled Probability", "Fission Source")
 pp.plot_flux(current_old, "Current", "Cell #", "Flux (1/cm^2)", "Fast Current", "Thermal Current")
