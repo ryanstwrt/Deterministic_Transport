@@ -58,21 +58,13 @@ def step_characteristic(angular_flux_pos_lhs, angular_flux_pos_rhs, scalar_flux_
 
     return
 
-#
 # Beginning of the Deterministic solver program.
-#
-#
-
 # Create the cell array which designates the material present in each cell
 mox_cell = ['water', 'water', 'MOX', 'MOX', 'MOX', 'MOX', 'water', 'water']
 u_cell = ['water', 'water', 'U', 'U', 'U', 'U', 'water', 'water']
 material_cell = []
-cell_width = 0.15625
 for i in range(16):
-    if i < 8:
-        material_cell = material_cell + mox_cell
-    else:
-        material_cell = material_cell + u_cell
+    material_cell += mox_cell if i < 8 else u_cell
 
 # Create the material specifications for each problem
 materials_a = [[0.2, 0.2, 0.0, 0.0, 1.0, 0.6, 0.0, 0.0, 0.90, 0.0],
@@ -88,33 +80,30 @@ material_data = pd.DataFrame(materials_a, columns=['total_fast', 'inscatter_fast
                                                    'downscatter_thermal', 'nusigmaf_thermal', 'chi_thermal'],
                              index=['MOX', 'U', 'water'])
 material_data = material_data.T
-
+mu_n = np.array([[-0.973906528517, -0.865063366689, -0.679409568299, -0.433395394129, -0.148874338982,
+                  0.148874338982, 0.433395394129, 0.679409568299, 0.865063366689, 0.973906528517],
+                 [0.0666713444544, 0.149451349057, 0.219086362450, 0.269266719318, 0.295524224712,
+                  0.295524224712, 0.269266719318, 0.219086362450, 0.149451349057, 0.0666713444544]])
 # Initialize k, the fission product, angular flux at 0, in the positive direction, scalar flux,
 # convergence criteria, and the number of iterations for convergence
 
 k_old = 1
-k_new = np.zeros(50)
-k_new[0] = 1
+k_new = 0
 fission_source_old = np.ones(128)
 fission_source_new = np.ones(128)
 scalar_flux_old = np.zeros((128, 2))
 current_old = np.zeros((128, 2))
 angular_flux_pos_lhs = np.zeros((10, 2))
 angular_flux_pos_rhs = np.zeros((10, 2))
-mu_n = np.array([[-0.973906528517, -0.865063366689, -0.679409568299, -0.433395394129, -0.148874338982,
-                  0.148874338982, 0.433395394129, 0.679409568299, 0.865063366689, 0.973906528517],
-                 [0.0666713444544, 0.149451349057, 0.219086362450, 0.269266719318, 0.295524224712,
-                  0.295524224712, 0.269266719318, 0.219086362450, 0.149451349057, 0.0666713444544]])
-
 Q = np.zeros(128)
 source = np.zeros(128)
 
+cell_width = 0.15625
 k_conv = 0.00001
 fission_source_conv = 0.00001
 source_convergence = 0.000001
 fs_convergence = 1
 k_convergence = 1
-
 fast_source_convergence = 0
 thermal_source_convergence = 0
 num_power_iter = 0
@@ -172,22 +161,18 @@ while k_conv < k_convergence or fission_source_conv < fs_convergence:
                                        + material_data.ix['nusigmaf_thermal', cell] * scalar_flux_old[(cell_num, 1)]) \
                                         * cell_width
     # Determine the new k value
-    k_new[num_power_iter + 1] = k_old * sum(fission_source_new) * cell_width / (sum(fission_source_old) * cell_width)
+    k_new = k_old * sum(fission_source_new) * cell_width / (sum(fission_source_old) * cell_width)
 
     # Calculate convergence criteria
     fs_convergence = abs(np.amax(fission_source_new) - np.amax(fission_source_old))
+    k_convergence = abs((k_new - k_old) / k_new)
+    fission_source_old[:] = fission_source_new[:]
+    k_old = k_new
     print("New k iteration number: %d" % num_power_iter)
-    print("k_eff: %f" % k_new[num_power_iter + 1])
+    print("k_eff: %f" % k_new)
     print("k_eff convergence: %f, %f" % (k_convergence, fs_convergence))
 
-    k_convergence = abs((k_new[num_power_iter + 1] - k_old) / k_new[num_power_iter + 1])
-
-    fission_source_old[:] = fission_source_new[:]
-    k_old = k_new[num_power_iter + 1]
-
     num_power_iter += 1
-    # loop over the angles to determine the angular flux
-
     if num_power_iter > 1000:
         break
 
