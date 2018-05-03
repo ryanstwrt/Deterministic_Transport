@@ -9,7 +9,6 @@ def step_characteristic(angular_flux_pos_lhs, angular_flux_pos_rhs, scalar_flux_
         total = 'total_fast'
     elif nrg == 1:
         total = 'total_thermal'
-
     # sweep over the angles (starting with the positive angles, followed by the cells to solve for the angular flux
     for angle in reversed(range(len(mu_n[0]))):
         if angle > 4:
@@ -133,14 +132,11 @@ while k_conv < k_convergence or fission_source_conv < fs_convergence:
         elif energy_group == 1:
             for cell_num, cell in enumerate(material_cell):
                 source[cell_num] = material_data.ix['downscatter_fast', cell] * scalar_flux_old[(cell_num, 0)]
-        else:
-            print("Error: Energy group not defined!")
-            quit()
 
         # Inner loop to determine source convergence
-        # start by determining the source term based on the energy and the Q term from above.
-        test_iter = 0
-        while test_iter < 100:  # source_convergence < source_convergence_test:
+        # Start by determining the source term based on the energy and the Q term from above.
+        # Warning: there is not kill for this loop if things don't converge!
+        while 1 < 2:  # source_convergence < source_convergence_test:
             scalar_flux_new = np.zeros((128, 2))
             current_new = np.zeros((128, 2))
 
@@ -151,17 +147,7 @@ while k_conv < k_convergence or fission_source_conv < fs_convergence:
 
                 step_characteristic(angular_flux_pos_lhs, angular_flux_pos_rhs, scalar_flux_new, current_new,
                                          material_data, cell_width, mu_n, energy_group)
-                max = np.amax(scalar_flux_new[:, 0])
-                max_old = np.amax(scalar_flux_old[:, 0])
-                fast_source_convergence = abs((max - max_old) / max)
-
                 num_source_iter_fast += 1
-                scalar_flux_old[:, 0] = scalar_flux_new[:, 0]
-                current_old[:, 0] = current_new[:, 0]
-
-                if fast_source_convergence < source_convergence:
-                    break
-
 
             elif energy_group == 1:
                 for cell_num, cell in enumerate(material_cell):
@@ -170,17 +156,15 @@ while k_conv < k_convergence or fission_source_conv < fs_convergence:
 
                 step_characteristic(angular_flux_pos_lhs, angular_flux_pos_rhs, scalar_flux_new, current_new,
                                          material_data, cell_width, mu_n, energy_group)
-
-                max = np.amax(scalar_flux_new[:, 1])
-                max_old = np.amax(scalar_flux_old[:, 1])
-                thermal_source_convergence = abs((max - max_old) / max)
-
                 num_source_iter_thermal += 1
-                scalar_flux_old[:, 1] = scalar_flux_new[:, 1]
-                current_old[:, 1] = current_new[:, 1]
 
-                if thermal_source_convergence < source_convergence:
-                    break
+            group_source_convergence = abs((np.amax(scalar_flux_new[:, energy_group])
+                                        - np.amax(scalar_flux_old[:, energy_group]))
+                                        / np.amax(scalar_flux_new[:, energy_group]))
+            scalar_flux_old[:, energy_group] = scalar_flux_new[:, energy_group]
+            current_old[:, energy_group] = current_new[:, energy_group]
+            if group_source_convergence < source_convergence:
+                break
 
     # Create the new fission source
     for cell_num, cell in enumerate(material_cell):
