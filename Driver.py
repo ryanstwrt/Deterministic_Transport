@@ -1,7 +1,7 @@
 import pandas as pd
 import numpy as np
 import post_process as pp
-
+from scipy.linalg import lu
 
 def step_characteristic(angular_flux_pos_lhs, angular_flux_pos_rhs, scalar_flux_new,
                         current_new, material_data, cell_width, mu_n, nrg, cell_edge_flux_new):
@@ -270,13 +270,14 @@ writer.save()
 #pp.plot_flux(pin_cell_average, "Pin Averaged Flux", "Pin Cell",
 #             "Flux (1/cm^2)", "Fast Flux", "Thermal Flux")
 
+# Import the homogenized data
 homogenized_data = pd.read_excel('Homogenized_XC_Ryan_Stewart.xlsx')
 print(homogenized_data.A1)
 print(homogenized_data.A1.thermal.diffusion)
 print(homogenized_data.A1.thermal.discontinuity_left)
 print(homogenized_data)
 
-
+# assign the homigenized data for the fast energy group
 delta_x_one = 0.15625
 diff_fast_1 = homogenized_data.A3.fast.diffusion
 disc_fast_left_1 = homogenized_data.A3.fast.discontinuity_left
@@ -288,17 +289,19 @@ disc_fast_left_2 = homogenized_data.A1.fast.discontinuity_left
 disc_fast_right_2 = homogenized_data.A1.fast.discontinuity_right
 rem_fast_2 = homogenized_data.A1.fast.removal
 
-coeff_matrix_fast = [[0, 1, -3, 6, -10, 0, 0, 0, 0, 0],
+# create the coefficient matrix for fast energy group
+coeff_matrix_fast = np.vstack([[0, 1, -3, 6, -10, 0, 0, 0, 0, 0],
                      [0, 0, 0, 0, 0, 0, 1, -3, 6, -10],
-                     [0, 3 * (diff_fast_1 / delta_x_one), 6 * (diff_fast_1 / delta_x_one), 10 * (diff_fast_1 / delta_x_one), 0, 3 * (diff_fast_2 / delta_x_two), 6 * (diff_fast_2 / delta_x_two), 10 * (diff_fast_2 / delta_x_two)],
+                     [0, (diff_fast_1 / delta_x_one), 3 * (diff_fast_1 / delta_x_one), 6 * (diff_fast_1 / delta_x_one), 10 * (diff_fast_1 / delta_x_one), 0, (diff_fast_2 / delta_x_two), 3 * (diff_fast_2 / delta_x_two), 6 * (diff_fast_2 / delta_x_two), 10 * (diff_fast_2 / delta_x_two)],
                      [disc_fast_right_1, disc_fast_right_1, disc_fast_right_1, disc_fast_right_1, disc_fast_right_1, -disc_fast_left_2, disc_fast_left_2, -disc_fast_left_2, disc_fast_left_2, -disc_fast_left_2],
                      [rem_fast_1, 0, -12 * (diff_fast_1 / pow(delta_x_one, 2)), 0, -40 * (diff_fast_1 / pow(delta_x_one, 2)), 0 , 0 , 0 , 0 , 0],
                      [0, 0, 0, 0, 0, rem_fast_2, 0, -12 * (diff_fast_2 / pow(delta_x_two, 2)), 0, -40 * (diff_fast_2 / pow(delta_x_two, 2))],
                      [0, rem_fast_1, 0, -60 * (diff_fast_1 / pow(delta_x_one, 2)), 0 , 0 , 0 , 0, 0, 0],
                      [0 , 0 , 0 , 0, 0, 0, 0, rem_fast_2, 0, -60 * (diff_fast_2 / pow(delta_x_two, 2))],
                      [0, 0, rem_fast_1, 0, -140 * (diff_fast_1 / pow(delta_x_one, 2)), 0, 0, 0, 0, 0],
-                     [0, 0, 0, 0, 0, 0, 0, rem_fast_2, 0, -140 * (diff_fast_2 / pow(delta_x_two, 2))]]
+                     [0, 0, 0, 0, 0, 0, 0, rem_fast_2, 0, -140 * (diff_fast_2 / pow(delta_x_two, 2))]])
 
+# assign the homigenized data for the thermal energy group
 delta_x_one = 0.15625
 diff_thermal_1 = homogenized_data.A3.thermal.diffusion
 disc_thermal_left_1 = homogenized_data.A3.thermal.discontinuity_left
@@ -310,16 +313,23 @@ disc_thermal_left_2 = homogenized_data.A1.thermal.discontinuity_left
 disc_thermal_right_2 = homogenized_data.A1.thermal.discontinuity_right
 rem_thermal_2 = homogenized_data.A1.thermal.removal
 
-coeff_matrix_thermal = [[0, 1, -3, 6, -10, 0, 0, 0, 0, 0],
+# create the coefficient matrix for thermal energy group
+coeff_matrix_thermal = np.vstack([[0, 1, -3, 6, -10, 0, 0, 0, 0, 0],
                      [0, 0, 0, 0, 0, 0, 1, -3, 6, -10],
-                     [0, 3 * (diff_thermal_1 / delta_x_one), 6 * (diff_thermal_1 / delta_x_one), 10 * (diff_thermal_1 / delta_x_one), 0, 3 * (diff_thermal_2 / delta_x_two), 6 * (diff_thermal_2 / delta_x_two), 10 * (diff_thermal_2 / delta_x_two)],
+                     [0, (diff_thermal_1 / delta_x_one), 3 * (diff_thermal_1 / delta_x_one), 6 * (diff_thermal_1 / delta_x_one), 10 * (diff_thermal_1 / delta_x_one), 0, -(diff_thermal_2 / delta_x_two), 3 * (diff_thermal_2 / delta_x_two), 6 * (diff_thermal_2 / delta_x_two), 10 * (diff_thermal_2 / delta_x_two)],
                      [disc_thermal_right_1, disc_thermal_right_1, disc_thermal_right_1, disc_thermal_right_1, disc_thermal_right_1, -disc_thermal_left_2, disc_thermal_left_2, -disc_thermal_left_2, disc_thermal_left_2, -disc_thermal_left_2],
                      [rem_thermal_1, 0, -12 * (diff_thermal_1 / pow(delta_x_one, 2)), 0, -40 * (diff_thermal_1 / pow(delta_x_one, 2)), 0 , 0 , 0 , 0 , 0],
                      [0, 0, 0, 0, 0, rem_thermal_2, 0, -12 * (diff_thermal_2 / pow(delta_x_two, 2)), 0, -40 * (diff_thermal_2 / pow(delta_x_two, 2))],
                      [0, rem_thermal_1, 0, -60 * (diff_thermal_1 / pow(delta_x_one, 2)), 0 , 0 , 0 , 0, 0, 0],
                      [0 , 0 , 0 , 0, 0, 0, 0, rem_thermal_2, 0, -60 * (diff_thermal_2 / pow(delta_x_two, 2))],
                      [0, 0, rem_thermal_1, 0, -140 * (diff_thermal_1 / pow(delta_x_one, 2)), 0, 0, 0, 0, 0],
-                     [0, 0, 0, 0, 0, 0, 0, rem_thermal_2, 0, -140 * (diff_thermal_2 / pow(delta_x_two, 2))]]
+                     [0, 0, 0, 0, 0, 0, 0, rem_thermal_2, 0, -140 * (diff_thermal_2 / pow(delta_x_two, 2))]])
 
-print(coeff_matrix_fast)
-print(coeff_matrix_thermal)
+#  Perform the LU decomposition
+coeff_matrix_fast_P, coeff_matrix_fast_L, coeff_matrix_fast_U = lu(coeff_matrix_fast)
+coeff_matrix_thermal_P, coeff_matrix_thermal_L, coeff_matrix_thermal_U = lu(coeff_matrix_thermal)
+
+print(coeff_matrix_fast_L)
+print("UPPER NOW \n")
+print(coeff_matrix_fast_U)
+
