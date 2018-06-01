@@ -1,7 +1,7 @@
 import pandas as pd
 import numpy as np
 import post_process as pp
-from scipy.linalg import lu
+from scipy.linalg import lu_factor, lu_solve
 
 def step_characteristic(angular_flux_pos_lhs, angular_flux_pos_rhs, scalar_flux_new,
                         current_new, material_data, cell_width, mu_n, nrg, cell_edge_flux_new):
@@ -144,9 +144,9 @@ Q = np.zeros(128)
 source = np.zeros(128)
 
 cell_width = 0.15625
-k_conv = 0.01
-fission_source_conv = 0.01
-source_convergence = 0.01
+k_conv = 0.1
+fission_source_conv = 0.1
+source_convergence = 0.1
 fs_convergence = 1
 k_convergence = 1
 fast_source_convergence = 0
@@ -270,12 +270,12 @@ writer.save()
 #pp.plot_flux(pin_cell_average, "Pin Averaged Flux", "Pin Cell",
 #             "Flux (1/cm^2)", "Fast Flux", "Thermal Flux")
 
+flux_coeff = np.zeros((10,2))
+fast_source = np.zeros((10,2))
+thermal_source = np.zeros((10,2))
+
 # Import the homogenized data
 homogenized_data = pd.read_excel('Homogenized_XC_Ryan_Stewart.xlsx')
-print(homogenized_data.A1)
-print(homogenized_data.A1.thermal.diffusion)
-print(homogenized_data.A1.thermal.discontinuity_left)
-print(homogenized_data)
 
 # assign the homigenized data for the fast energy group
 delta_x_one = 0.15625
@@ -283,23 +283,34 @@ diff_fast_1 = homogenized_data.A3.fast.diffusion
 disc_fast_left_1 = homogenized_data.A3.fast.discontinuity_left
 disc_fast_right_1 = homogenized_data.A3.fast.discontinuity_right
 rem_fast_1 = homogenized_data.A3.fast.removal
+nusigmaf_fast_1 = homogenized_data.A3.fast.nusigmaf
 delta_x_two = 0.15625
 diff_fast_2 = homogenized_data.A1.fast.diffusion
 disc_fast_left_2 = homogenized_data.A1.fast.discontinuity_left
 disc_fast_right_2 = homogenized_data.A1.fast.discontinuity_right
 rem_fast_2 = homogenized_data.A1.fast.removal
+nusigmaf_fast_2 = homogenized_data.A1.fast.nusigmaf
+
 
 # create the coefficient matrix for fast energy group
 coeff_matrix_fast = np.vstack([[0, 1, -3, 6, -10, 0, 0, 0, 0, 0],
-                     [0, 0, 0, 0, 0, 0, 1, -3, 6, -10],
-                     [0, (diff_fast_1 / delta_x_one), 3 * (diff_fast_1 / delta_x_one), 6 * (diff_fast_1 / delta_x_one), 10 * (diff_fast_1 / delta_x_one), 0, (diff_fast_2 / delta_x_two), 3 * (diff_fast_2 / delta_x_two), 6 * (diff_fast_2 / delta_x_two), 10 * (diff_fast_2 / delta_x_two)],
-                     [disc_fast_right_1, disc_fast_right_1, disc_fast_right_1, disc_fast_right_1, disc_fast_right_1, -disc_fast_left_2, disc_fast_left_2, -disc_fast_left_2, disc_fast_left_2, -disc_fast_left_2],
-                     [rem_fast_1, 0, -12 * (diff_fast_1 / pow(delta_x_one, 2)), 0, -40 * (diff_fast_1 / pow(delta_x_one, 2)), 0 , 0 , 0 , 0 , 0],
-                     [0, 0, 0, 0, 0, rem_fast_2, 0, -12 * (diff_fast_2 / pow(delta_x_two, 2)), 0, -40 * (diff_fast_2 / pow(delta_x_two, 2))],
-                     [0, rem_fast_1, 0, -60 * (diff_fast_1 / pow(delta_x_one, 2)), 0 , 0 , 0 , 0, 0, 0],
-                     [0 , 0 , 0 , 0, 0, 0, 0, rem_fast_2, 0, -60 * (diff_fast_2 / pow(delta_x_two, 2))],
-                     [0, 0, rem_fast_1, 0, -140 * (diff_fast_1 / pow(delta_x_one, 2)), 0, 0, 0, 0, 0],
-                     [0, 0, 0, 0, 0, 0, 0, rem_fast_2, 0, -140 * (diff_fast_2 / pow(delta_x_two, 2))]])
+                     [0, 0, 0, 0, 0, 0, 1, 3, 6, 10],
+                     [0, (diff_fast_1 / delta_x_one), 3 * (diff_fast_1 / delta_x_one),
+                      6 * (diff_fast_1 / delta_x_one), 10 * (diff_fast_1 / delta_x_one),
+                      0, -(diff_fast_2 / delta_x_two), 3 * (diff_fast_2 / delta_x_two),
+                      -6 * (diff_fast_2 / delta_x_two), 10 * (diff_fast_2 / delta_x_two)],
+                     [disc_fast_right_1, disc_fast_right_1, disc_fast_right_1,
+                      disc_fast_right_1, disc_fast_right_1,
+                      -disc_fast_left_2, disc_fast_left_2, -disc_fast_left_2,
+                      disc_fast_left_2, -disc_fast_left_2],
+                     [rem_fast_1, 0, -12 * (diff_fast_1 / (delta_x_one**2)), 0,
+                      -40 * (diff_fast_1 / (delta_x_one**2)), 0, 0, 0, 0, 0],
+                     [0, 0, 0, 0, 0, rem_fast_2, 0, -12 * (diff_fast_2 / (delta_x_two**2)), 0,
+                      -40 * (diff_fast_2 / (delta_x_two**2))],
+                     [0, rem_fast_1, 0, -60 * (diff_fast_1 / (delta_x_one**2)), 0, 0, 0, 0, 0, 0],
+                     [0, 0, 0, 0, 0, 0, rem_fast_2, 0, -60 * (diff_fast_2 / (delta_x_two**2)), 0],
+                     [0, 0, rem_fast_1, 0, -140 * (diff_fast_1 / (delta_x_one**2)), 0, 0, 0, 0, 0],
+                     [0, 0, 0, 0, 0, 0, 0, rem_fast_2, 0, -140 * (diff_fast_2 / (delta_x_two**2))]])
 
 # assign the homigenized data for the thermal energy group
 delta_x_one = 0.15625
@@ -307,29 +318,89 @@ diff_thermal_1 = homogenized_data.A3.thermal.diffusion
 disc_thermal_left_1 = homogenized_data.A3.thermal.discontinuity_left
 disc_thermal_right_1 = homogenized_data.A3.thermal.discontinuity_right
 rem_thermal_1 = homogenized_data.A3.thermal.removal
+nusigmaf_thermal_1 = homogenized_data.A3.thermal.nusigmaf
 delta_x_two = 0.15625
 diff_thermal_2 = homogenized_data.A1.thermal.diffusion
 disc_thermal_left_2 = homogenized_data.A1.thermal.discontinuity_left
 disc_thermal_right_2 = homogenized_data.A1.thermal.discontinuity_right
 rem_thermal_2 = homogenized_data.A1.thermal.removal
+nusigmaf_thermal_2 = homogenized_data.A1.thermal.nusigmaf
 
 # create the coefficient matrix for thermal energy group
 coeff_matrix_thermal = np.vstack([[0, 1, -3, 6, -10, 0, 0, 0, 0, 0],
-                     [0, 0, 0, 0, 0, 0, 1, -3, 6, -10],
-                     [0, (diff_thermal_1 / delta_x_one), 3 * (diff_thermal_1 / delta_x_one), 6 * (diff_thermal_1 / delta_x_one), 10 * (diff_thermal_1 / delta_x_one), 0, -(diff_thermal_2 / delta_x_two), 3 * (diff_thermal_2 / delta_x_two), 6 * (diff_thermal_2 / delta_x_two), 10 * (diff_thermal_2 / delta_x_two)],
-                     [disc_thermal_right_1, disc_thermal_right_1, disc_thermal_right_1, disc_thermal_right_1, disc_thermal_right_1, -disc_thermal_left_2, disc_thermal_left_2, -disc_thermal_left_2, disc_thermal_left_2, -disc_thermal_left_2],
-                     [rem_thermal_1, 0, -12 * (diff_thermal_1 / pow(delta_x_one, 2)), 0, -40 * (diff_thermal_1 / pow(delta_x_one, 2)), 0 , 0 , 0 , 0 , 0],
-                     [0, 0, 0, 0, 0, rem_thermal_2, 0, -12 * (diff_thermal_2 / pow(delta_x_two, 2)), 0, -40 * (diff_thermal_2 / pow(delta_x_two, 2))],
-                     [0, rem_thermal_1, 0, -60 * (diff_thermal_1 / pow(delta_x_one, 2)), 0 , 0 , 0 , 0, 0, 0],
-                     [0 , 0 , 0 , 0, 0, 0, 0, rem_thermal_2, 0, -60 * (diff_thermal_2 / pow(delta_x_two, 2))],
-                     [0, 0, rem_thermal_1, 0, -140 * (diff_thermal_1 / pow(delta_x_one, 2)), 0, 0, 0, 0, 0],
-                     [0, 0, 0, 0, 0, 0, 0, rem_thermal_2, 0, -140 * (diff_thermal_2 / pow(delta_x_two, 2))]])
+                     [0, 0, 0, 0, 0, 0, 1, 3, 6, 10],
+                     [0, (diff_thermal_1 / delta_x_one), 3 * (diff_thermal_1 / delta_x_one),
+                      6 * (diff_thermal_1 / delta_x_one), 10 * (diff_thermal_1 / delta_x_one),
+                      0, -(diff_thermal_2 / delta_x_two), 3 * (diff_thermal_2 / delta_x_two),
+                      -6 * (diff_thermal_2 / delta_x_two), 10 * (diff_thermal_2 / delta_x_two)],
+                     [disc_thermal_right_1, disc_thermal_right_1, disc_thermal_right_1,
+                      disc_thermal_right_1, disc_thermal_right_1,
+                      -disc_thermal_left_2, disc_thermal_left_2, -disc_thermal_left_2,
+                      disc_thermal_left_2, -disc_thermal_left_2],
+                     [rem_thermal_1, 0, -12 * (diff_thermal_1 / (delta_x_one**2)), 0,
+                      -40 * (diff_thermal_1 / (delta_x_one**2)), 0, 0, 0, 0, 0],
+                     [0, 0, 0, 0, 0, rem_thermal_2, 0, -12 * (diff_thermal_2 / (delta_x_two**2)), 0,
+                      -40 * (diff_thermal_2 / (delta_x_two**2))],
+                     [0, rem_thermal_1, 0, -60 * (diff_thermal_1 / (delta_x_one**2)), 0, 0, 0, 0, 0, 0],
+                     [0, 0, 0, 0, 0, 0, rem_thermal_2, 0, -60 * (diff_thermal_2 / (delta_x_two**2)), 0],
+                     [0, 0, rem_thermal_1, 0, -140 * (diff_thermal_1 / (delta_x_one**2)), 0, 0, 0, 0, 0],
+                     [0, 0, 0, 0, 0, 0, 0, rem_thermal_2, 0, -140 * (diff_thermal_2 / (delta_x_two**2))]])
 
 #  Perform the LU decomposition
-coeff_matrix_fast_P, coeff_matrix_fast_L, coeff_matrix_fast_U = lu(coeff_matrix_fast)
-coeff_matrix_thermal_P, coeff_matrix_thermal_L, coeff_matrix_thermal_U = lu(coeff_matrix_thermal)
+coeff_matrix_fast_LU = lu_factor(coeff_matrix_fast)
+coeff_matrix_thermal_LU = lu_factor(coeff_matrix_thermal)
 
-print(coeff_matrix_fast_L)
-print("UPPER NOW \n")
-print(coeff_matrix_fast_U)
+#Start looping over
+k_old = 1
+k_new = 1
+
+k_conv = 0.01
+fission_source_conv = 0.01
+source_convergence = 0.01
+fs_convergence = 1
+k_convergence = 1
+
+old_fast_flux = np.zeros(10)
+new_fast_flux = np.zeros(10)
+old_thermal_flux = np.zeros(10)
+new_thermal_flux = np.zeros(10)
+
+old_fission_source = np.ones(10)
+new_fission_source = np.ones(10)
+
+
+i=0
+while 1 < 2:
+    for energy_group in [0, 1]:
+        if energy_group == 0:
+            fast_flux_RHS = [0, 0, 0, 0, (1/k_old)*old_fission_source[0], (1/k_old)*old_fission_source[5],
+                             (1/k_old)*old_fission_source[1], (1/k_old)*old_fission_source[6],
+                             (1/k_old)*old_fission_source[2], (1/k_old)*old_fission_source[7]]
+            new_fast_flux = lu_solve(coeff_matrix_fast_LU, fast_flux_RHS)
+            #new_fast_flux = np.linalg.solve(coeff_matrix_fast, fast_flux_RHS)
+        else:
+            thermal_flux_RHS = [0, 0, 0, 0, new_fast_flux[0] * rem_fast_1, new_fast_flux[5] * rem_fast_1,
+                                new_fast_flux[1] * rem_fast_1, new_fast_flux[6] * rem_fast_2,
+                                new_fast_flux[2] * rem_fast_2, new_fast_flux[7] * rem_fast_2]
+            new_thermal_flux = lu_solve(coeff_matrix_thermal_LU, thermal_flux_RHS)
+            #new_thermal_flux = np.linalg.solve(coeff_matrix_thermal, thermal_flux_RHS)
+        # Calculate the new fission source
+        for coeff, flux in enumerate(new_fast_flux):
+            if coeff < 5:
+                new_fission_source[coeff] = new_fast_flux[coeff] * nusigmaf_fast_1 + new_thermal_flux[coeff] * nusigmaf_thermal_1
+            else:
+                new_fission_source[coeff] = new_fast_flux[coeff] * nusigmaf_fast_2 + new_thermal_flux[coeff] * nusigmaf_thermal_2
+    k_new = k_old * sum(new_fission_source) / sum(old_fission_source)
+    k_conv = abs(k_new-k_old)
+    fs_convergence = max(new_fission_source - old_fission_source)
+    old_fission_source[:] = new_fission_source[:]
+
+    print(k_new, k_old)
+    k_old = k_new
+
+    print(fs_convergence)
+    #print(fs_convergence)
+    i+=1
+    if i > 10:
+        break
 
