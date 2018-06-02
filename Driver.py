@@ -2,6 +2,7 @@ import pandas as pd
 import numpy as np
 import post_process as pp
 from scipy.linalg import lu_factor, lu_solve
+from numpy.polynomial import Polynomial, Legendre
 
 def step_characteristic(angular_flux_pos_lhs, angular_flux_pos_rhs, scalar_flux_new,
                         current_new, material_data, cell_width, mu_n, nrg, cell_edge_flux_new):
@@ -93,28 +94,36 @@ def step_characteristic(angular_flux_pos_lhs, angular_flux_pos_rhs, scalar_flux_
 
 # Beginning of the Deterministic solver program.
 # Create the cell array which designates the material present in each cell
-mox_cell = ['water', 'water', 'MOX', 'MOX', 'MOX', 'MOX', 'water', 'water']
-u_cell = ['water', 'water', 'U', 'U', 'U', 'U', 'water', 'water']
+
+# Create the cell array which designates the material present in each cell
+mox1_cell = ['water', 'water', 'MOX1', 'MOX1', 'MOX1', 'MOX1', 'water', 'water']
+mox2_cell = ['water', 'water', 'MOX2', 'MOX2', 'MOX2', 'MOX2', 'water', 'water']
+mox3_cell = ['water', 'water', 'MOX3', 'MOX3', 'MOX3', 'MOX3', 'water', 'water']
+mox4_cell = ['water', 'water', 'MOX4', 'MOX4', 'MOX4', 'MOX4', 'water', 'water']
+u1_cell = ['water', 'water', 'U1', 'U1', 'U1', 'U1', 'water', 'water']
+u2_cell = ['water', 'water', 'U2', 'U2', 'U2', 'U2', 'water', 'water']
+
 material_cell = []
 for i in range(16):
-    material_cell += mox_cell if i < 8 else u_cell
+    material_cell += u1_cell if i < 8 else mox1_cell
 
-# Create the material specifications for each problem
-materials_a = [[0.2, 0.2, 0.0, 0.0, 1.0, 0.6, 0.0, 0.0, 0.90, 0.0],
-               [0.2, 0.2, 0.0, 0.0, 1.0, 0.2, 0.0, 0.0, 0.30, 0.0],
-               [0.2, 0.17, 0.03, 0.0, 0.0, 1.1, 1.1, 0.0, 0.0, 0.0]]
-materials_b = [[0.2, 0.185, 0.015, 0.0, 1.0, 1.2, 0.9, 0.0, 0.45, 0.0],
-               [0.2, 0.185, 0.015, 0.0, 1.0, 1.0, 0.9, 0.0, 0.15, 0.0],
-               [0.2, 0.17, 0.03, 0.0, 0.0, 1.1, 1.1, 0.0, 0.0, 0.0]]
+
+materials_full = [[0.2, 0.2,   0.0,   0.0, 1.0, 0.6,  0.0, 0.0, 0.90,  0.0],
+                  [0.2, 0.185, 0.015, 0.0, 1.0, 1.2,  0.9, 0.0, 0.45,  0.0],
+                  [0.2, 0.185, 0.015, 0.0, 1.0, 1.13, 0.9, 0.0, 0.345, 0.0],
+                  [0.2, 0.185, 0.015, 0.0, 1.0, 1.07, 0.9, 0.0, 0.255, 0.0],
+                  [0.2, 0.2,   0.0,   0.0, 1.0, 0.2,  0.0, 0.0, 0.3,   0.0],
+                  [0.2, 0.185, 0.015, 0.0, 1.0, 1.0,  0.9, 0.0, 0.15,  0.0],
+                  [0.2, 0.17,  0.03,  0.0, 0.0, 1.1,  1.1, 0.0, 0.0,   0.0]]
 
 # Create a data from for the material cross sections to be used for each material
 material_data = \
-    pd.DataFrame(materials_b, columns=['total_fast', 'inscatter_fast', 'downscatter_fast',
+    pd.DataFrame(materials_full, columns=['total_fast', 'inscatter_fast', 'downscatter_fast',
                                         'nusigmaf_fast', 'chi_fast',
                                        'total_thermal', 'inscatter_thermal',
                                        'downscatter_thermal', 'nusigmaf_thermal',
                                        'chi_thermal'],
-                             index=['MOX', 'U', 'water'])
+                             index=['MOX1', 'MOX2','MOX3','MOX4','U1','U2', 'water'])
 material_data = material_data.T
 mu_n = np.array([[-0.973906528517, -0.865063366689, -0.679409568299,
                   -0.433395394129, -0.148874338982,
@@ -325,6 +334,7 @@ disc_thermal_left_2 = homogenized_data.A1.thermal.discontinuity_left
 disc_thermal_right_2 = homogenized_data.A1.thermal.discontinuity_right
 rem_thermal_2 = homogenized_data.A1.thermal.removal
 nusigmaf_thermal_2 = homogenized_data.A1.thermal.nusigmaf
+print(diff_thermal_2)
 
 # create the coefficient matrix for thermal energy group
 coeff_matrix_thermal = np.vstack([[0, 1, -3, 6, -10, 0, 0, 0, 0, 0],
@@ -354,9 +364,8 @@ coeff_matrix_thermal_LU = lu_factor(coeff_matrix_thermal)
 k_old = 1
 k_new = 1
 
-k_conv = 0.01
-fission_source_conv = 0.01
-source_convergence = 0.01
+k_conv = 0.00001
+fission_source_conv = 0.00001
 fs_convergence = 1
 k_convergence = 1
 
@@ -370,20 +379,18 @@ new_fission_source = np.ones(10)
 
 
 i=0
-while 1 < 2:
+while not k_conv < k_convergence or fission_source_conv < fs_convergence:
     for energy_group in [0, 1]:
         if energy_group == 0:
             fast_flux_RHS = [0, 0, 0, 0, (1/k_old)*old_fission_source[0], (1/k_old)*old_fission_source[5],
                              (1/k_old)*old_fission_source[1], (1/k_old)*old_fission_source[6],
                              (1/k_old)*old_fission_source[2], (1/k_old)*old_fission_source[7]]
             new_fast_flux = lu_solve(coeff_matrix_fast_LU, fast_flux_RHS)
-            #new_fast_flux = np.linalg.solve(coeff_matrix_fast, fast_flux_RHS)
         else:
             thermal_flux_RHS = [0, 0, 0, 0, new_fast_flux[0] * rem_fast_1, new_fast_flux[5] * rem_fast_1,
                                 new_fast_flux[1] * rem_fast_1, new_fast_flux[6] * rem_fast_2,
                                 new_fast_flux[2] * rem_fast_2, new_fast_flux[7] * rem_fast_2]
             new_thermal_flux = lu_solve(coeff_matrix_thermal_LU, thermal_flux_RHS)
-            #new_thermal_flux = np.linalg.solve(coeff_matrix_thermal, thermal_flux_RHS)
         # Calculate the new fission source
         for coeff, flux in enumerate(new_fast_flux):
             if coeff < 5:
@@ -394,13 +401,40 @@ while 1 < 2:
     k_conv = abs(k_new-k_old)
     fs_convergence = max(new_fission_source - old_fission_source)
     old_fission_source[:] = new_fission_source[:]
-
-    print(k_new, k_old)
     k_old = k_new
 
-    print(fs_convergence)
-    #print(fs_convergence)
     i+=1
-    if i > 10:
+    if i > 1000:
         break
 
+print(k_new)
+import matplotlib.pyplot as mpl
+from scipy.special import legendre
+
+
+N = 1000
+xvals = np.linspace(-1,1,N)
+
+def legendre_val(x,n):
+    leg = legendre(n)
+    P_n = leg(x)
+    return P_n
+
+func = 0
+for i in range(0,4):
+    func += legendre_val(xvals,i)
+
+mpl.plot(xvals,func)
+
+
+
+
+fast_legendre = Legendre(new_fast_flux[:4], [0, 64])
+
+
+#mpl.show()
+
+#pp.plot_nodal_flux(np.asarray([new_fast_flux, new_thermal_flux]), "Cell Average Flux", "Cell", "Flux (1/cm^2)",
+#             "Fast Flux", "Thermal Flux")
+print(fs_convergence)
+print(i)
