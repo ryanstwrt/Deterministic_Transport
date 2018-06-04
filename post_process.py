@@ -2,7 +2,7 @@ import numpy as np
 import matplotlib.pyplot as mpl
 
 def plot_flux(flux, title, x_label, y_label, label_1, label_2):
-    mpl.plot(flux[:, 0], label=label_1)
+    #mpl.plot(flux[:, 0], label=label_1)
     mpl.plot(flux[:, 1], label=label_2)
     mpl.legend()
     mpl.title(title)
@@ -10,16 +10,16 @@ def plot_flux(flux, title, x_label, y_label, label_1, label_2):
     mpl.ylabel(y_label)
     mpl.show()
 
-def plot_nodal_flux(flux, title, x_label, y_label, label_1, label_2):
-    mpl.plot(flux[:4, 0], label=label_1)
-    mpl.plot(flux[5:, 0], label=label_1)
-    mpl.plot(flux[:4, 0], label=label_2)
-    mpl.plot(flux[5:, 0], label=label_2)
+
+def plot_nodal_flux(flux, fposition, tposition, title, x_label, y_label, label_1, label_2):
+    #mpl.plot(fposition, flux[0, :], label=label_1)
+    mpl.plot(tposition, flux[1, :], label=label_2)
     mpl.legend()
     mpl.title(title)
     mpl.xlabel(x_label)
     mpl.ylabel(y_label)
     mpl.show()
+
 
 def plot_1d_array(flux, title, x_label, y_label, label_1):
     mpl.plot(flux[:], label=label_1)
