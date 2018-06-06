@@ -263,14 +263,13 @@ edge_flux_excel.to_excel(writer, index=False, sheet_name='cell_edge_flux')
 current_excel.to_excel(writer, index=False, sheet_name='current')
 edge_current_excel.to_excel(writer, index=False, sheet_name='cell_edge_current')
 pin_average_excel.to_excel(writer, index=False, sheet_name='pin_average')
-writer.save()
 
 # Print out plots of each
 #pp.flux_histogram(pin_cell_average, "Pin Averaged Flux with Cell Average Flux",
 #                  "Pin Cell", "Flux (1/cm^2)", "Fast Flux", "Thermal Flux",
 #                  scalar_flux_old)
-pp.plot_flux(scalar_flux_old, "Cell Average Flux", "Cell", "Flux (1/cm^2)",
-             "Fast Flux", "Thermal Flux")
+#pp.plot_flux(scalar_flux_old, "Cell Average Flux", "Cell", "Flux (1/cm^2)",
+#             "Fast Flux", "Thermal Flux")
 #pp.plot_flux(cell_edge_flux_old, "Cell Edge Flux", "Cell Edge", "Flux (1/cm^2)",
 #             "Fast Flux", "Thermal Flux")
 #pp.plot_1d_array(fission_source_new, "Fission Source", "Cell",
@@ -285,12 +284,27 @@ pp.plot_flux(scalar_flux_old, "Cell Average Flux", "Cell", "Flux (1/cm^2)",
 
 ###############################################################################
 #Start Nodal Methods
-def nodal_flux_builder(coefficient):
+def nodal_flux_builder_edge(coefficient, diff1, diff2):
     flux_legendre1 = Legendre(coefficient[:5])
     flux_legendre2 = Legendre(coefficient[5:])
 
+    flux_legendre1 = flux_legendre1.deriv(1)
+    flux_legendre2 = flux_legendre2.deriv(1)
+
     flux1 = flux_legendre1.linspace(65, [0, 10])
     flux2 = flux_legendre2.linspace(65, [10, 20])
+
+    total_flux = np.concatenate((diff1 * flux1[1], diff2 * flux2[1]))
+    flux_position = np.concatenate((flux1[0], flux2[0]))
+
+    return total_flux, flux_position
+
+def nodal_flux_builder_cell(coefficient):
+    flux_legendre1 = Legendre(coefficient[:5])
+    flux_legendre2 = Legendre(coefficient[5:])
+
+    flux1 = flux_legendre1.linspace(64, [0, 10])
+    flux2 = flux_legendre2.linspace(64, [10, 20])
 
     total_flux = np.concatenate((flux1[1], flux2[1]))
     flux_position = np.concatenate((flux1[0], flux2[0]))
@@ -390,9 +404,9 @@ flux_conv = 0.00001
 k_conv = 0.00001
 
 old_fast_flux = np.zeros(10)
-new_fast_flux = np.zeros(10)
+new_fast_flux_coeff = np.zeros(10)
 old_thermal_flux = np.zeros(10)
-new_thermal_flux = np.zeros(10)
+new_thermal_flux_coeff = np.zeros(10)
 older_fast_flux = np.ones(10)
 older_thermal_flux = np.ones(10)
 
@@ -408,19 +422,19 @@ while k_conv < k_convergence and flux_conv < flux_convergence:
             fast_flux_RHS = [0, 0, 0, 0, (1/k_old)*old_fission_source[0], (1/k_old)*old_fission_source[5],
                              (1/k_old)*old_fission_source[1], (1/k_old)*old_fission_source[6],
                              (1/k_old)*old_fission_source[2], (1/k_old)*old_fission_source[7]]
-            new_fast_flux = lu_solve(coeff_matrix_fast_LU, fast_flux_RHS)
+            new_fast_flux_coeff = lu_solve(coeff_matrix_fast_LU, fast_flux_RHS)
         else:
-            thermal_flux_RHS = [0, 0, 0, 0, new_fast_flux[0] * rem_fast_1, new_fast_flux[5] * rem_fast_1,
-                                new_fast_flux[1] * rem_fast_1, new_fast_flux[6] * rem_fast_2,
-                                new_fast_flux[2] * rem_fast_2, new_fast_flux[7] * rem_fast_2]
-            new_thermal_flux = lu_solve(coeff_matrix_thermal_LU, thermal_flux_RHS)
+            thermal_flux_RHS = [0, 0, 0, 0, new_fast_flux_coeff[0] * rem_fast_1, new_fast_flux_coeff[5] * rem_fast_1,
+                                new_fast_flux_coeff[1] * rem_fast_1, new_fast_flux_coeff[6] * rem_fast_2,
+                                new_fast_flux_coeff[2] * rem_fast_2, new_fast_flux_coeff[7] * rem_fast_2]
+            new_thermal_flux_coeff = lu_solve(coeff_matrix_thermal_LU, thermal_flux_RHS)
 
     # Calculate the new fission source
-    for coeff, flux in enumerate(new_fast_flux):
+    for coeff, flux in enumerate(new_fast_flux_coeff):
         if coeff < 5:
-            new_fission_source[coeff] = new_fast_flux[coeff] * nusigmaf_fast_1 + new_thermal_flux[coeff] * nusigmaf_thermal_1
+            new_fission_source[coeff] = new_fast_flux_coeff[coeff] * nusigmaf_fast_1 + new_thermal_flux_coeff[coeff] * nusigmaf_thermal_1
         else:
-            new_fission_source[coeff] = new_fast_flux[coeff] * nusigmaf_fast_2 + new_thermal_flux[coeff] * nusigmaf_thermal_2
+            new_fission_source[coeff] = new_fast_flux_coeff[coeff] * nusigmaf_fast_2 + new_thermal_flux_coeff[coeff] * nusigmaf_thermal_2
 
     k_new = k_old * sum(new_fission_source) / sum(old_fission_source)
 
@@ -428,9 +442,13 @@ while k_conv < k_convergence and flux_conv < flux_convergence:
     k_convergence = abs(k_new-k_old)
     k_conv = eps_k * (1 - k_convergence)
 
+    new_fast_flux, extent = nodal_flux_builder_cell(new_fast_flux_coeff)
+    new_thermal_flux, extent = nodal_flux_builder_cell(new_thermal_flux_coeff)
+
     if flux_conv > flux_convergence:
         if max(new_fast_flux) - max(old_fast_flux) > max(new_thermal_flux) - max(old_thermal_flux):
             flux_rho = abs(max(new_fast_flux) - max(old_fast_flux)) / abs(max(old_fast_flux) - max(older_fast_flux))
+            print(flux_rho)
             flux_convergence = abs(max(new_fast_flux) - max(old_fast_flux))
         else:
             flux_rho = abs(max(new_thermal_flux) - max(old_thermal_flux)) / abs(max(old_thermal_flux) - max(older_thermal_flux))
@@ -459,10 +477,42 @@ while k_conv < k_convergence and flux_conv < flux_convergence:
 
 print("Nodal ", k_new, i)
 
-print(new_fast_flux)
-fast_flux, fposition = nodal_flux_builder(new_fast_flux)
-thermal_flux, tposition = nodal_flux_builder(new_thermal_flux)
+#pp.plot_flux(new_fast_flux, "Cell Average Flux", "Cell", "Flux (1/cm^2)",
+#             "Fast Flux", "Thermal Flux")
+fast_flux_edge, fposition1 = nodal_flux_builder_edge(new_fast_flux_coeff, diff_fast_1, diff_fast_2)
+thermal_flux_edge, tposition2 = nodal_flux_builder_edge(new_thermal_flux_coeff, diff_thermal_1, diff_thermal_2)
+nodal_current = np.concatenate(([fast_flux_edge], [thermal_flux_edge]))
+nodal_current = nodal_current.T
 
+fast_flux_cell, fposition = nodal_flux_builder_cell(new_fast_flux_coeff)
+thermal_flux_cell, tposition = nodal_flux_builder_cell(new_thermal_flux_coeff)
 
-pp.plot_nodal_flux(np.asarray([fast_flux, thermal_flux]), fposition, tposition, "Cell Average Flux", "Cell", "Flux (1/cm^2)",
+fast_flux_cell = fast_flux_cell / 5
+thermal_flux_cell = thermal_flux_cell / 5
+
+nodal_flux = np.vstack((fast_flux_cell, thermal_flux_cell))
+
+pin_avg_1 = pp.nodal_pin_cell_average_flux(fast_flux_cell)
+pin_avg_2 = pp.nodal_pin_cell_average_flux(thermal_flux_cell)
+pin_cell = np.concatenate(([pin_avg_1], [pin_avg_2]))
+pin_cell_avg = pin_cell.T
+
+rel_error = np.zeros((16,2))
+for counter, val in enumerate(pin_cell_avg):
+    rel_error[counter, 0] = abs((pin_cell_avg[counter, 0] - pin_cell_average[counter, 0])/pin_cell_average[counter, 0]) * 100
+    rel_error[counter, 1] = abs((pin_cell_avg[counter, 1] - pin_cell_average[counter, 1])/pin_cell_average[counter, 1]) * 100
+
+rel_error_excel = pd.DataFrame(rel_error)
+pin_avg_excel = pd.DataFrame(pin_cell_avg)
+coarse_current_excel = pd.DataFrame(nodal_current)
+pin_avg_excel.to_excel(writer, index=False, sheet_name='coarse_pin_average')
+rel_error_excel.to_excel(writer, index=False, sheet_name='rel_error')
+coarse_current_excel.to_excel(writer, index=False, sheet_name='coarse_current')
+
+writer.save()
+import matplotlib.pyplot as mpl
+
+pp.plot_nodal_flux(np.asarray([fast_flux_edge / 5, thermal_flux_edge / 5]), fposition1 * 6.4, tposition2 * 6.4, "Cell-Edge Group Current", "Cell", "Flux (1/cm^2)",
              "Fast Flux", "Thermal Flux")
+pp.flux_histogram(pin_cell_average, "Pin Averaged Reference Flux with Coarse Mesh Scalar Flux",
+                  "Pin Cell", "Flux (1/cm^2)", "Fast Flux", "Thermal Flux", nodal_flux)
